@@ -1,0 +1,8 @@
+(
+    output: "all",
+    source: Path("/usr/local/share/backgrounds/frog.png"),
+    filter_by_theme: false,
+    rotation_frequency: 900,
+    filter_method: Lanczos,
+    scaling_mode: Zoom,
+)

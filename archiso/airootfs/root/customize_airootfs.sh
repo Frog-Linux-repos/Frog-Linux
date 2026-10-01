@@ -18,11 +18,26 @@ getent group liveuser >/dev/null || groupadd -g 1500 liveuser
 getent group wheel    >/dev/null || groupadd -r wheel
 usermod -g liveuser -aG wheel liveuser
 
-# The archiso preset is already staged in the overlay and pacstrap has already
-# used it: mkinitcpio's alpm hook only writes a preset when none exists, and
-# linux-cachyos ships none. So the initramfs should already be correct and the
-# rest of this is a check, not a fix.
+# The package archive was verified by the builder before staging. Skip its
+# scriptlet here because mkarchiso deliberately leaves the target keyring empty.
+cat > /tmp/frog-keyring-pacman.conf <<'EOF'
+[options]
+SigLevel = Never
+EOF
+pacman --config /tmp/frog-keyring-pacman.conf -U --noscriptlet --noconfirm \
+    /root/cachyos-keyring.pkg.tar.zst
+pacman-key --init
+pacman-key --populate archlinux cachyos
+
+# Hooks are staged outside active hook directories until pacstrap is done.
+cp -a /root/frog-package-hooks/. /
+rm -rf /root/frog-package-hooks /root/cachyos-keyring.pkg.tar.zst \
+    /tmp/frog-keyring-pacman.conf
+
+# Package transactions ran before the Archiso overlay was present, so make the
+# live initramfs now using the profile's Archiso preset.
 rm -f /boot/initramfs-linux-cachyos-fallback.img
+/usr/bin/mkinitcpio -p linux-cachyos
 
 # Catch preset or config drift here rather than as a kernel panic at boot. A
 # non-archiso initramfs contains no paths matching 'archiso'. The `|| true`

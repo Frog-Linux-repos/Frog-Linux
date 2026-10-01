@@ -1,0 +1,7 @@
+---
+type: job
+interface: python
+name: froglimine
+script: main.py
+noconfig: true
+requiredModules: [ partition ]

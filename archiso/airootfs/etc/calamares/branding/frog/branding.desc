@@ -14,7 +14,7 @@ strings:
     shortVersion:        Rolling
     versionedName:       Frog Linux (Rolling)
     shortVersionedName:  Frog Rolling
-    bootloaderEntryName: Frog Linux
+    bootloaderEntryName: Frog
     productUrl:          https://github.com/Crazy10061/Frog-Linux
     supportUrl:          https://github.com/Crazy10061/Frog-Linux/issues
     releaseNotesUrl:     https://github.com/Crazy10061/Frog-Linux/releases

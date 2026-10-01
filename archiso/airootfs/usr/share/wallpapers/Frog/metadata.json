@@ -1,0 +1,15 @@
+{
+    "KPlugin": {
+        "Id": "Frog",
+        "Name": "Frog Linux",
+        "Authors": [
+            {
+                "Name": "Frog Linux"
+            }
+        ]
+    },
+    "X-KDE-PlasmaImageWallpaper-AccentColor": {
+        "Light": "#41664c",
+        "Dark": "#aed1a8"
+    }
+}

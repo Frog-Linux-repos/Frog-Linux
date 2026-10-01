@@ -55,9 +55,12 @@ pacman-key --populate archlinux cachyos
 # system needs to be able to take security updates for it.
 sed -i '/^IgnorePkg = webkit2gtk/d' /etc/pacman.conf
 
-# releng symlinks resolv.conf into /run/systemd/resolve/. NetworkManager owns
-# DNS here, so drop the symlink and let it write a real file.
-rm -f /etc/resolv.conf
+# The host-side prepare-network step replaces releng's /run symlink with the
+# live environment's resolver so package installs work in this chroot.
+if ! grep -Eq '^[[:space:]]*nameserver[[:space:]]+' /etc/resolv.conf; then
+    echo "ERROR: target has no working DNS resolver." >&2
+    exit 1
+fi
 
 # Credentials and autologin that only make sense on a live image.
 rm -f  /etc/sudoers.d/g_wheel
@@ -69,8 +72,16 @@ rm -f /etc/plasmalogin.conf.d/10-frog-live.conf
 rm -f  /etc/ssh/sshd_config.d/10-archiso.conf
 rm -f  /root/.automated_script.sh /root/.zlogin
 rm -f /etc/systemd/system/display-manager.service
-ln -s /usr/lib/systemd/system/plasmalogin.service \
-    /etc/systemd/system/display-manager.service
+
+# Limine's packaged mkinitcpio wrapper prompts during Calamares, and its
+# package hook cannot write boot entries until the installed ESP is configured.
+if [ -f /etc/pacman.d/hooks/90-mkinitcpio-install.hook ]; then
+    mv /etc/pacman.d/hooks/90-mkinitcpio-install.hook \
+       /etc/pacman.d/hooks/90-mkinitcpio-install.hook.frog-disabled
+fi
+if [ -f /usr/local/bin/mkinitcpio ]; then
+    mv /usr/local/bin/mkinitcpio /usr/local/bin/mkinitcpio.frog-disabled
+fi
 
 # A volatile journal and inhibited suspend are right for a live image and wrong
 # once installed.

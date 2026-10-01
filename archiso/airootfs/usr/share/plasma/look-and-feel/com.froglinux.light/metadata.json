@@ -1,0 +1,15 @@
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "Frog Linux"
+            }
+        ],
+        "Description": "Frog Linux light desktop theme",
+        "Id": "com.froglinux.light",
+        "License": "GPL-3.0-or-later",
+        "Name": "Frog Light"
+    },
+    "X-Plasma-APIVersion": "2"
+}

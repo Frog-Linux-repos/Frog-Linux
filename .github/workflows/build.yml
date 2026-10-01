@@ -77,9 +77,9 @@ jobs:
         fi
         bash scripts/smoke-test-iso.sh "${isos[0]}"
 
-    - name: Upload Frog Linux ISO
-      uses: actions/upload-artifact@v4
+    - name: Upload Frog Linux ISO artifact
+      uses: actions/upload-artifact@v7
       with:
-        name: Frog-Linux-ISO
         path: ./output/*.iso
         if-no-files-found: error
+        archive: false

@@ -1,10 +1,8 @@
 # Frog Linux
 
-Frog Linux is a fancy and opinionated reskin of Arch Linux running on the
-CachyOS kernel.
+Frog Linux is a fancy and opinionated reskin of Arch Linux running on the CachyOS kernel.
 
-It is basically Arch with KDE Plasma, Calamares, some defaults I like, and more
-frog stuff than strictly necessary. It is not trying to reinvent Linux.
+It is basically Arch with KDE Plasma or COSMIC, a GUI installer, some defaults I like, and more frog stuff than strictly necessary. It is not trying to reinvent Linux.
 
 ## Building
 

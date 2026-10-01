@@ -26,6 +26,11 @@ SigLevel = Required DatabaseOptional
 Server = https://mirror.cachyos.org/repo/$arch/$repo
 EOF
 
+# These hooks target installed systems and must not run while pacstrap builds
+# the live root, which has no ESP or Snapper configuration yet.
+sed -i '/^\[options\]/a NoExtract = usr/share/libalpm/hooks/*limine*.hook\nNoExtract = usr/share/libalpm/hooks/*snap-pac*.hook\nNoExtract = etc/pacman.d/hooks/90-mkinitcpio-install.hook\nNoExtract = usr/local/bin/mkinitcpio' \
+  ./frog-profile/pacman.conf
+
 find ./frog-profile/syslinux ./frog-profile/grub ./frog-profile/efiboot \
      -type f \( -name '*.cfg' -o -name '*.conf' \) -print0 |
   xargs -0r sed -i \
@@ -56,7 +61,9 @@ iso_application="Frog Linux Live/Install CD"
 
 file_permissions+=(
   ["/usr/local/bin/frog-init.sh"]="0:0:755"
+  ["/usr/local/bin/frog-install-desktop.sh"]="0:0:755"
   ["/usr/local/bin/frog-install-browser.sh"]="0:0:755"
+  ["/usr/local/bin/frog-configure-snapshots"]="0:0:755"
   ["/usr/local/bin/frog-patch-tauri-desktop.sh"]="0:0:755"
   ["/usr/local/bin/frog-postinstall-cleanup.sh"]="0:0:755"
   ["/etc/skel/Desktop/install-frog-linux.desktop"]="0:0:755"
@@ -76,6 +83,9 @@ AIROOTFS=./frog-profile/airootfs
 
 cp ./frog-profile/pacman.conf "$AIROOTFS/etc/pacman.conf"
 
+sed -i '/^NoExtract = .*\(limine\|snap-pac\|90-mkinitcpio-install\|usr\/local\/bin\/mkinitcpio\)/d' \
+  "$AIROOTFS/etc/pacman.conf"
+
 sed -i '/^\[frog-local\]/,/^$/d' \
   "$AIROOTFS/etc/pacman.conf"
 
@@ -91,6 +101,36 @@ if [ ! -s "$AIROOTFS/etc/pacman.d/mirrorlist" ]; then
     exit 1
   fi
 fi
+
+HOOK_STAGE="$AIROOTFS/root/frog-package-hooks"
+mkdir -p "$HOOK_STAGE"
+pacman -Syw --noconfirm --config ./frog-profile/pacman.conf \
+  --cachedir /var/cache/pacman/pkg \
+  cachyos-keyring limine-mkinitcpio-hook limine-snapper-sync snap-pac
+
+for package in cachyos-keyring limine-mkinitcpio-hook limine-snapper-sync snap-pac; do
+  version="$(pacman -Si --config ./frog-profile/pacman.conf "$package" |
+    sed -n 's/^Version[[:space:]]*:[[:space:]]*//p' | head -n1)"
+  archive="$(find /var/cache/pacman/pkg -maxdepth 1 -type f \
+    -name "${package}-${version}-*.pkg.tar.*" ! -name '*.sig' -print -quit)"
+  if [ -z "$archive" ]; then
+    echo "ERROR: downloaded package archive missing for $package $version." >&2
+    exit 1
+  fi
+
+  if [ "$package" = cachyos-keyring ]; then
+    install -m 644 "$archive" "$AIROOTFS/root/cachyos-keyring.pkg.tar.zst"
+    continue
+  fi
+
+  mapfile -t hooks < <(tar --zstd -tf "$archive" |
+    grep -E '^(etc/pacman.d/hooks|usr/share/libalpm/hooks)/[^/]+\.hook$|^usr/local/bin/mkinitcpio$' || true)
+  if [ "${#hooks[@]}" -eq 0 ]; then
+    echo "ERROR: no pacman hooks found in $package $version." >&2
+    exit 1
+  fi
+  tar --zstd -xf "$archive" -C "$HOOK_STAGE" "${hooks[@]}"
+done
 
 echo "==> Build-time pacman repositories:"
 grep -E '^\[[^]]+\]' ./frog-profile/pacman.conf

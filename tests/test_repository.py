@@ -1,3 +1,4 @@
+import configparser
 import json
 import os
 import shlex
@@ -13,6 +14,7 @@ BROWSER_INSTALLER = REPO / "archiso/airootfs/usr/local/bin/frog-install-browser.
 CALAMARES_MODULES = REPO / "archiso/airootfs/etc/calamares/modules"
 SMOKE_TEST = REPO / "scripts/smoke-test-iso.sh"
 BUILD_SCRIPT = REPO / "scripts/build-in-container.sh"
+CUSTOMIZE_SCRIPT = REPO / "archiso/airootfs/root/customize_airootfs.sh"
 
 
 class PackageProfileTests(unittest.TestCase):
@@ -25,10 +27,29 @@ class PackageProfileTests(unittest.TestCase):
 
         self.assertIn("xf86-video-nouveau", packages)
         self.assertIn("plasma-login-manager", packages)
+        self.assertNotIn("cachyos-keyring", packages)
         self.assertNotIn("sddm", packages)
         self.assertNotIn("nvidia-open-dkms", packages)
         self.assertNotIn("nvidia-utils", packages)
         self.assertNotIn("nvidia-settings", packages)
+
+    def test_live_iso_defers_installed_system_hooks_and_rebuilds_archiso_initramfs(self):
+        build = BUILD_SCRIPT.read_text()
+        customize = CUSTOMIZE_SCRIPT.read_text()
+
+        self.assertIn("NoExtract = usr/share/libalpm/hooks/*limine*.hook", build)
+        self.assertIn("NoExtract = usr/share/libalpm/hooks/*snap-pac*.hook", build)
+        self.assertIn("NoExtract = etc/pacman.d/hooks/90-mkinitcpio-install.hook", build)
+        self.assertIn("NoExtract = usr/local/bin/mkinitcpio", build)
+        self.assertIn('["/usr/local/bin/frog-configure-snapshots"]="0:0:755"', build)
+        self.assertIn("SigLevel = Never", customize)
+        self.assertIn("-U --noscriptlet --noconfirm", customize)
+        self.assertIn("pacman-key --populate archlinux cachyos", customize)
+        self.assertIn("cp -a /root/frog-package-hooks/. /", customize)
+        self.assertIn("/usr/bin/mkinitcpio -p linux-cachyos", customize)
+        self.assertIn("pacman -Syw --noconfirm", build)
+        self.assertIn('install -m 644 "$archive" "$AIROOTFS/root/cachyos-keyring.pkg.tar.zst"', build)
+        self.assertIn("cachyos-keyring limine-mkinitcpio-hook limine-snapper-sync snap-pac", build)
 
 
 class BrandingImageTests(unittest.TestCase):
@@ -47,6 +68,69 @@ class BrandingImageTests(unittest.TestCase):
         self.assertEqual((512, 512), png_size("icon.png"))
         self.assertEqual((512, 512), png_size("logo.png"))
         self.assertEqual((640, 300), png_size("welcome.png"))
+
+
+class KDEThemeTests(unittest.TestCase):
+    def test_frog_light_and_dark_global_themes_are_complete(self):
+        scheme_dir = REPO / "archiso/airootfs/usr/share/color-schemes"
+        theme_dir = REPO / "archiso/airootfs/usr/share/plasma/look-and-feel"
+
+        schemes = (
+            ("FrogLight", "Frog Light", "65,102,76"),
+            ("FrogDark", "Frog Dark", "174,209,168"),
+        )
+        for scheme_id, name, accent in schemes:
+            with self.subTest(scheme=scheme_id):
+                config = configparser.ConfigParser(interpolation=None)
+                config.optionxform = str
+                config.read(scheme_dir / f"{scheme_id}.colors")
+                self.assertEqual(name, config["General"]["Name"])
+                self.assertEqual(scheme_id, config["General"]["ColorScheme"])
+                for section in (
+                    "Colors:Button",
+                    "Colors:Selection",
+                    "Colors:Tooltip",
+                    "Colors:View",
+                    "Colors:Window",
+                    "WM",
+                ):
+                    self.assertIn(section, config)
+                self.assertEqual(accent, config["Colors:Button"]["DecorationFocus"])
+
+                theme_id = f"com.froglinux.{scheme_id.removeprefix('Frog').lower()}"
+                metadata = json.loads((theme_dir / theme_id / "metadata.json").read_text())
+                defaults = (theme_dir / theme_id / "contents/defaults").read_text()
+                self.assertEqual("Plasma/LookAndFeel", metadata["KPackageStructure"])
+                self.assertEqual(theme_id, metadata["KPlugin"]["Id"])
+                self.assertEqual(name, metadata["KPlugin"]["Name"])
+                self.assertIn(f"ColorScheme={scheme_id}", defaults)
+                self.assertIn("widgetStyle=Breeze", defaults)
+                self.assertIn("[Wallpaper]\nImage=Frog", defaults)
+
+        wallpaper_dir = REPO / "archiso/airootfs/usr/share/wallpapers/Frog"
+        wallpaper = wallpaper_dir / "contents/images/1920x1080.png"
+        self.assertEqual(
+            (REPO / "archiso/airootfs/etc/skel/Wallpapers/frog.png").read_bytes(),
+            wallpaper.read_bytes(),
+        )
+        wallpaper_meta = json.loads((wallpaper_dir / "metadata.json").read_text())
+        self.assertEqual("Frog", wallpaper_meta["KPlugin"]["Id"])
+        self.assertEqual(
+            {"Light": "#41664c", "Dark": "#aed1a8"},
+            wallpaper_meta["X-KDE-PlasmaImageWallpaper-AccentColor"],
+        )
+
+    def test_kde_install_defaults_to_frog_light(self):
+        kdeglobals = (
+            REPO / "archiso/airootfs/etc/skel/.config/kdeglobals"
+        ).read_text()
+        installer = (
+            REPO / "archiso/airootfs/usr/local/bin/frog-install-desktop.sh"
+        ).read_text()
+
+        self.assertIn("ColorScheme=FrogLight", kdeglobals)
+        self.assertIn("LookAndFeelPackage=com.froglinux.light", kdeglobals)
+        self.assertIn("rm -f /etc/skel/.config/kdeglobals", installer)
 
 
 class FetchConfigurationTests(unittest.TestCase):
@@ -164,6 +248,27 @@ class BrowserInstallerTests(unittest.TestCase):
 
 
 class LiveUserCleanupTests(unittest.TestCase):
+    def test_installer_copies_live_dns_into_target_before_cleanup(self):
+        cleanup = (
+            REPO / "archiso/airootfs/usr/local/bin/frog-postinstall-cleanup.sh"
+        ).read_text()
+        prepare = (
+            CALAMARES_MODULES / "shellprocess_prepare_network.conf"
+        ).read_text()
+        settings = (REPO / "archiso/airootfs/etc/calamares/settings.conf").read_text()
+
+        self.assertIn("dontChroot: true", prepare)
+        self.assertIn("rm -f ${ROOT}/etc/resolv.conf", prepare)
+        self.assertIn(
+            "cp --dereference /etc/resolv.conf ${ROOT}/etc/resolv.conf", prepare
+        )
+        prepare_index = settings.index("  - shellprocess@prepare-network")
+        cleanup_index = settings.index("  - shellprocess@cleanup")
+        desktop_index = settings.index("  - contextualprocess@desktop-install")
+        self.assertLess(prepare_index, cleanup_index)
+        self.assertLess(cleanup_index, desktop_index)
+        self.assertIn("nameserver", cleanup)
+
     def test_live_session_logs_back_in_after_session_exit(self):
         autologin = (
             REPO / "archiso/airootfs/etc/plasmalogin.conf.d/10-frog-live.conf"
@@ -241,6 +346,16 @@ class ContinuousIntegrationTests(unittest.TestCase):
 
         self.assertIn("python3 -m unittest discover -s tests -v", workflow)
         self.assertIn("bash scripts/smoke-test-iso.sh", workflow)
+
+    def test_ci_publishes_the_iso_as_a_workflow_artifact(self):
+        workflow = (REPO / ".github/workflows/build.yml").read_text()
+
+        self.assertIn("uses: actions/upload-artifact@v7", workflow)
+        self.assertIn("path: ./output/*.iso", workflow)
+        self.assertIn("if-no-files-found: error", workflow)
+        self.assertIn("archive: false", workflow)
+        self.assertNotIn("compression-level:", workflow)
+        self.assertNotIn("gh release", workflow)
 
 
 class SmokeTestScriptTests(unittest.TestCase):
